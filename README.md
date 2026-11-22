@@ -137,4 +137,16 @@ https://github.com/Ammisri2603
 
 ## 📄 Project Status
 
-Working prototype under active improvement.
+Working prototype under active improvement
+
+
+## 📸 Nexora AI Screenshots
+
+### Chatbot Home Page
+
+![Nexora Home](screenshots/nexora-home.png)
+
+### AI Chatbot Conversation
+
+![Nexora Chat](screenshots/nexora-chat.png)
+
