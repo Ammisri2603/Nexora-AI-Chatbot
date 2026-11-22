@@ -144,7 +144,7 @@ Working prototype under active improvement
 
 ### Chatbot Home Page
 
-![Nexora Home](screenshots/nexora-home.png)
+![Nexora Home](screenshots/nexora.homepage.png)
 
 ### AI Chatbot Conversation
 
