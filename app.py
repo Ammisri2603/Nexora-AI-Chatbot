@@ -1,26 +1,32 @@
+
 import os
+import time
 import logging
+
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors
 
-# Load local environment variables
+# ======================================
+# 1. APPLICATION CONFIGURATION
+# ======================================
+
 load_dotenv()
 
-# Streamlit page configuration
 st.set_page_config(
     page_title="Chandu-Nexora AI",
     page_icon="🤖",
     layout="centered"
 )
 
-# Page heading
 st.title("🤖 Chandu-Nexora AI")
 st.caption("Your personal AI assistant")
 
-# Gemini API configuration
-# Works with local .env and Streamlit Cloud secrets
+# ======================================
+# 2. GEMINI API KEY
+# ======================================
+
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
@@ -31,56 +37,57 @@ if not api_key:
 
 if not api_key:
     st.error(
-        "GEMINI_API_KEY is missing. "
-        "Configure it in your local .env file "
+        "Gemini API key is missing. "
+        "Set GEMINI_API_KEY in your .env file "
         "or Streamlit Cloud Secrets."
     )
     st.stop()
 
-# Initialize Gemini client
-from google.genai import types
+# ======================================
+# 3. GEMINI CLIENT
+# ======================================
 
-client = genai.Client(
-    api_key=api_key,
-    http_options=types.HttpOptions(
-        retry_options=types.HttpRetryOptions(
-            attempts=3,
-            initial_delay=1,
-            max_delay=8,
-            exp_base=2,
-            http_status_codes=[429, 500, 502, 503, 504],
-        )
-    ),
+client = genai.Client(api_key=api_key)
+
+# Can be changed if your API key supports
+# a different Gemini model.
+MODEL_NAME = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-3.5-flash-lite"
 )
 
-# Use only one Gemini model
-MODEL_NAME = "gemini-3.5-flash-lite"
-
 SYSTEM_INSTRUCTIONS = """
-You are Chandu-Nexora, a helpful, friendly,
-intelligent AI assistant.
-
-Answer questions clearly and naturally.
+You are Chandu-Nexora, a friendly and
+helpful AI assistant created by Chandu Guthula.
 
 Help users with:
-- Education and studying
-- Python programming
-- Coding and debugging
 - Artificial Intelligence
-- General knowledge
-- Writing and creative ideas
+- Machine Learning
+- Python programming
+- Education and studying
+- Coding and debugging
+- Writing and general knowledge
 - Everyday questions
 
-Use conversation history to answer follow-up questions.
+Answer clearly and naturally.
 
-If you do not know an answer, be honest.
+Remember previous messages within the
+current chat session.
+
+If you do not know something, be honest.
 """
 
-# Initialize chat history
+# ======================================
+# 4. CHAT HISTORY
+# ======================================
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar settings
+# ======================================
+# 5. SIDEBAR
+# ======================================
+
 with st.sidebar:
     st.title("⚙️ Settings")
     st.caption("Powered by Google Gemini")
@@ -95,112 +102,178 @@ with st.sidebar:
     st.divider()
     st.caption("Developed by Chandu Guthula")
 
-# Display previous messages
+# ======================================
+# 6. DISPLAY EXISTING MESSAGES
+# ======================================
+
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# User input
-prompt = st.chat_input("Message Chandu-Nexora...")
+# ======================================
+# 7. BUILD GEMINI CHAT HISTORY
+# ======================================
+
+def build_history(messages):
+    history = []
+
+    for message in messages:
+        role = (
+            "user"
+            if message["role"] == "user"
+            else "model"
+        )
+
+        content = message["content"]
+
+        if history and history[-1]["role"] == role:
+            history[-1]["parts"][0]["text"] += (
+                "\n" + content
+            )
+        else:
+            history.append({
+                "role": role,
+                "parts": [
+                    {"text": content}
+                ]
+            })
+
+    return history
+
+# ======================================
+# 8. GENERATE AI RESPONSE
+# ======================================
+
+def generate_response(prompt, history):
+    max_attempts = 3
+
+    for attempt in range(max_attempts):
+        try:
+            chat = client.chats.create(
+                model=MODEL_NAME,
+                history=history,
+                config={
+                    "system_instruction":
+                        SYSTEM_INSTRUCTIONS
+                }
+            )
+
+            # Only one API request per attempt
+            response = chat.send_message(prompt)
+
+            answer = response.text
+
+            if not answer:
+                raise ValueError(
+                    "Empty response from Gemini"
+                )
+
+            return answer, True
+
+        except errors.APIError as e:
+            logging.warning(
+                "Gemini API error: %s",
+                e.code
+            )
+
+            # Retry temporary server failures
+            if e.code in (500, 502, 503, 504):
+                if attempt < max_attempts - 1:
+                    delay = 2 ** attempt
+                    time.sleep(delay)
+                    continue
+
+                return (
+                    "⚠️ Gemini is currently busy. "
+                    "Please try again shortly.",
+                    False
+                )
+
+            if e.code == 429:
+                return (
+                    "⚠️ API rate limit reached. "
+                    "Please try again later.",
+                    False
+                )
+
+            if e.code in (400, 404):
+                return (
+                    "⚠️ Gemini request or model "
+                    "configuration error. "
+                    "Please check the model name.",
+                    False
+                )
+
+            if e.code in (401, 403):
+                return (
+                    "⚠️ API authentication or "
+                    "permission error. "
+                    "Please check your API key.",
+                    False
+                )
+
+            return (
+                "Sorry, the AI service is "
+                "unavailable right now.",
+                False
+            )
+
+        except Exception:
+            logging.exception(
+                "Unexpected Nexora error"
+            )
+
+            return (
+                "Sorry, something went wrong. "
+                "Please try again.",
+                False
+            )
+
+    return (
+        "Unable to generate a response.",
+        False
+    )
+
+# ======================================
+# 9. USER CHAT INPUT
+# ======================================
+
+prompt = st.chat_input(
+    "Message Chandu-Nexora..."
+)
 
 if prompt:
-    # Display and save user message
-    st.session_state.messages.append({
-        "role": "user",
-        "content": prompt
-    })
-
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Generate AI response
+    # History contains only successful
+    # user-assistant conversations.
+    history = build_history(
+        st.session_state.messages
+    )
+
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            try:
-                # Build previous conversation history
-                history = []
+            answer, success = generate_response(
+                prompt,
+                history
+            )
 
-                for msg in st.session_state.messages[:-1]:
-                    role = (
-                        "user"
-                        if msg["role"] == "user"
-                        else "model"
-                    )
+        st.markdown(answer)
 
-                    # Merge consecutive messages of same role
-                    if (
-                        history
-                        and history[-1]["role"] == role
-                    ):
-                        history[-1]["parts"][0]["text"] += (
-                            "\n" + msg["content"]
-                        )
-                    else:
-                        history.append({
-                            "role": role,
-                            "parts": [
-                                {"text": msg["content"]}
-                            ]
-                        })
+    # Save messages only after a
+    # successful AI response.
+    if success:
+        st.session_state.messages.append({
+            "role": "user",
+            "content": prompt
+        })
 
-                # Create ONE Gemini chat session
-                chat = client.chats.create(
-                    model=MODEL_NAME,
-                    history=history,
-                    config={
-                        "system_instruction": SYSTEM_INSTRUCTIONS
-                    }
-                )
-
-                # Send ONE API request
-                response = chat.send_message(prompt)
-
-                # Get response
-                answer = (
-                    response.text
-                    or "Sorry, I couldn't generate a response."
-                )
-
-            
-            except errors.APIError as e:
-                logging.warning(
-                    "Gemini API failed with status %s",
-                    e.code
-                )
-
-                if e.code == 503:
-                    answer = (
-                        "⚠️ Gemini server is busy. "
-                        "Please try again shortly."
-                    )
-                elif e.code == 429:
-                    answer = (
-                        "⚠️ API rate limit reached. "
-                        "Please try again later."
-                    )
-                else:
-                    answer = (
-                        "Sorry, the AI service is unavailable. "
-                        "Please try again."
-                    )
-
-            except Exception:
-                logging.exception("Unexpected chatbot error")
-                answer = (
-                    "Something went wrong. "
-                    "Please try again."
-                )
-
-
-            # Display response
-            st.markdown(answer)
-
-    # Save assistant message
-    # Do not include failed responses in Gemini history
-    if answer.startswith("Sorry, something went wrong."):
-        st.session_state.messages.pop()
-    else:
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer
         })
+
+# ======================================
+# END OF NEXORA AI APPLICATION
+# ======================================
