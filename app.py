@@ -161,14 +161,36 @@ if prompt:
                     or "Sorry, I couldn't generate a response."
                 )
 
-            except Exception:
-                logging.exception("Gemini request failed")
-
-                answer = (
-                    "Sorry, something went wrong. "
-                    "Please check the API configuration, "
-                    "model availability, or API quota."
+            
+            except errors.APIError as e:
+                logging.warning(
+                    "Gemini API failed with status %s",
+                    e.code
                 )
+
+                if e.code == 503:
+                    answer = (
+                        "⚠️ Gemini server is busy. "
+                        "Please try again shortly."
+                    )
+                elif e.code == 429:
+                    answer = (
+                        "⚠️ API rate limit reached. "
+                        "Please try again later."
+                    )
+                else:
+                    answer = (
+                        "Sorry, the AI service is unavailable. "
+                        "Please try again."
+                    )
+
+            except Exception:
+                logging.exception("Unexpected chatbot error")
+                answer = (
+                    "Something went wrong. "
+                    "Please try again."
+                )
+
 
             # Display response
             st.markdown(answer)
