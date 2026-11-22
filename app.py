@@ -3,6 +3,7 @@ import logging
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors
 
 # Load local environment variables
 load_dotenv()
