@@ -1,34 +1,65 @@
+
 import os
+import logging
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
 
+# Load local environment variables
 load_dotenv()
 
+# Streamlit page configuration
 st.set_page_config(
     page_title="Chandu-Nexora AI",
     page_icon="🤖",
     layout="centered"
 )
 
-# Gemini API configuration
-api_key = os.getenv("GEMINI_API_KEY")
-
+# Page heading
 st.title("🤖 Chandu-Nexora AI")
 st.caption("Your personal AI assistant")
 
+# Gemini API configuration
+# Works with local .env and Streamlit Cloud secrets
+api_key = os.getenv("GEMINI_API_KEY")
+
 if not api_key:
-    st.error("GEMINI_API_KEY is not configured. Please set it in your .env file.")
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except (FileNotFoundError, KeyError):
+        api_key = None
+
+if not api_key:
+    st.error(
+        "GEMINI_API_KEY is missing. "
+        "Configure it in your local .env file "
+        "or Streamlit Cloud Secrets."
+    )
     st.stop()
 
+# Initialize Gemini client
 client = genai.Client(api_key=api_key)
 
+# Use only one Gemini model
+MODEL_NAME = "gemini-3.5-flash-lite"
+
 SYSTEM_INSTRUCTIONS = """
-You are Chandu-Nexora, a helpful, friendly, intelligent AI assistant.
+You are Chandu-Nexora, a helpful, friendly,
+intelligent AI assistant.
+
 Answer questions clearly and naturally.
-Help with education, coding, writing, general knowledge,
-ideas, and everyday questions.
-Use the conversation history to answer follow-up questions.
+
+Help users with:
+- Education and studying
+- Python programming
+- Coding and debugging
+- Artificial Intelligence
+- General knowledge
+- Writing and creative ideas
+- Everyday questions
+
+Use conversation history to answer follow-up questions.
+
 If you do not know an answer, be honest.
 """
 
@@ -41,11 +72,17 @@ with st.sidebar:
     st.title("⚙️ Settings")
     st.caption("Powered by Google Gemini")
 
-    if st.button("🗑️ New Chat", use_container_width=True):
+    if st.button(
+        "🗑️ New Chat",
+        use_container_width=True
+    ):
         st.session_state.messages = []
         st.rerun()
 
-# Display existing conversation
+    st.divider()
+    st.caption("Developed by Chandu Guthula")
+
+# Display previous messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
@@ -54,73 +91,81 @@ for message in st.session_state.messages:
 prompt = st.chat_input("Message Chandu-Nexora...")
 
 if prompt:
-    st.session_state.messages.append(
-        {"role": "user", "content": prompt}
-    )
+    # Display and save user message
+    st.session_state.messages.append({
+        "role": "user",
+        "content": prompt
+    })
 
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Generate AI response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Send conversation history to Gemini
-                
-                
-                # Build conversation history from previous messages
+                # Build previous conversation history
                 history = []
 
                 for msg in st.session_state.messages[:-1]:
-                    role = "user" if msg["role"] == "user" else "model"
+                    role = (
+                        "user"
+                        if msg["role"] == "user"
+                        else "model"
+                    )
 
-                    # Gemini expects alternating user/model messages.
-                    if history and history[-1]["role"] == role:
-                        history[-1]["parts"][0]["text"] += "\n" + msg["content"]
+                    # Merge consecutive messages of same role
+                    if (
+                        history
+                        and history[-1]["role"] == role
+                    ):
+                        history[-1]["parts"][0]["text"] += (
+                            "\n" + msg["content"]
+                        )
                     else:
                         history.append({
                             "role": role,
-                            "parts": [{"text": msg["content"]}]
+                            "parts": [
+                                {"text": msg["content"]}
+                            ]
                         })
 
-                # Gemini chat session with previous messages
+                # Create ONE Gemini chat session
                 chat = client.chats.create(
-                    model="gemini-3.5-flash-lite",
+                    model=MODEL_NAME,
                     history=history,
                     config={
                         "system_instruction": SYSTEM_INSTRUCTIONS
                     }
                 )
 
+                # Send ONE API request
                 response = chat.send_message(prompt)
-                answer = response.text or "Sorry, I couldn't generate a response."
 
-                chat = client.chats.create(
-                    model="gemini-3.8-flash",
-                    history=[
-                        {
-                            "role": item["role"],
-                            "parts": item["parts"]
-                        }
-                        for item in history
-                    ],
-                    config={
-                        "system_instruction": SYSTEM_INSTRUCTIONS
-                    }
+                # Get response
+                answer = (
+                    response.text
+                    or "Sorry, I couldn't generate a response."
                 )
 
-                response = chat.send_message(prompt)
-                answer = response.text or "Sorry, I couldn't generate a response."
+            except Exception:
+                logging.exception("Gemini request failed")
 
-            except Exception as e:
                 answer = (
                     "Sorry, something went wrong. "
-                    "Please check your Gemini API key, model availability, "
-                    "and API quota.\n\n"
-                    f"Error details: {e}"
+                    "Please check the API configuration, "
+                    "model availability, or API quota."
                 )
 
+            # Display response
             st.markdown(answer)
 
-    st.session_state.messages.append(
-        {"role": "assistant", "content": answer}
-    )
+    # Save assistant message
+    # Do not include failed responses in Gemini history
+    if answer.startswith("Sorry, something went wrong."):
+        st.session_state.messages.pop()
+    else:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
